@@ -58,13 +58,45 @@ run_s0ix_selftest() {
   local iter="$1"
   mkdir -p "$SELFTEST_DIR"
   pushd "$SELFTEST_DIR" >/dev/null
+
+  # Run selftest and capture stdout/stderr
   /root/s0ix-selftest-tool.sh -s > "iter_${iter}_stdout.log" 2>&1 || true
+
+  # Rename tool-generated date log to iteration-named file
   local genlog="$(ls -1t *-s0ix-output.log 2>/dev/null | head -n1 || true)"
   if [[ -n "$genlog" ]]; then
     mv "$genlog" "iter_${iter}_s0ix-output.log"
   fi
+
+  # --- bundle all files for this iteration in a subfolder, then tar ---
+  local bundle="iter_${iter}_bundle"
+  rm -rf "$bundle"
+  mkdir -p "$bundle"
+
+  # Include all artifacts for this iteration
+  cp -a "iter_${iter}_stdout.log" "$bundle/" 2>/dev/null || true
+  cp -a "iter_${iter}_s0ix-output.log" "$bundle/" 2>/dev/null || true
+
+  # (Optional) also include system context for quick triage:
+  # uname/dmesg snapshot & mem_sleep
+  uname -a > "$bundle/uname.txt"
+  (dmesg --time-format=iso 2>/dev/null || true) | tail -n 500 > "$bundle/dmesg-tail.txt"
+  [[ -r /sys/power/mem_sleep ]] && cat /sys/power/mem_sleep > "$bundle/mem_sleep.txt"
+
+  # Create per-iteration tarball with user's requested command style
+  pushd "$bundle" >/dev/null
+  tar -czvf "s0ix-selftest-tool_${iter}.tar.gz" *
+  popd >/devnull
+
+  local tarpath="${SELFTEST_DIR}/${bundle}/s0ix-selftest-tool_${iter}.tar.gz"
+
   popd >/dev/null
+
   echo "Iter $iter: S0ixSelftest logs -> ${SELFTEST_DIR}/iter_${iter}_s0ix-output.log (stdout: ${SELFTEST_DIR}/iter_${iter}_stdout.log)" | tee -a "$LOG"
+  echo "Iter $iter: Selftest tarball  -> ${tarpath}" | tee -a "$LOG"
+
+  # export path for CSV usage
+  SELFTEST_LAST_TAR="$tarpath"
 }
 
 # -------- Initialize logs & CSV header --------
@@ -72,7 +104,7 @@ echo "Start: $(date -Iseconds)" > "$LOG"
 echo "CPU vendor: $CPU_VENDOR" | tee -a "$LOG"
 
 # CSV header (per-iteration)
-echo "iteration,timestamp,vendor,total_hw_sleep,last_hw_sleep,slp_s0_residency_usec,mem_sleep,pm_wakeup_irq,low_power_idle_system_us,low_power_idle_cpu_us,intel_selftest_ran,selftest_log" > "$CSV"
+echo "iteration,timestamp,vendor,total_hw_sleep,last_hw_sleep,slp_s0_residency_usec,mem_sleep,pm_wakeup_irq,low_power_idle_system_us,low_power_idle_cpu_us,intel_selftest_ran,selftest_log,selftest_tar" > "$CSV"
 
 PREV_SLP=""
 SELFTEST_RAN_COUNT=0
@@ -132,7 +164,7 @@ for i in $(seq 1 "$ITER"); do
   fi
 
   # Write one CSV row
-  echo "$i,$ts,$CPU_VENDOR,$ths,$lhs,${slp:-},${mems:-},${wakeirq:-},${lpi_sys:-},${lpi_cpu:-},$ran,${selflog}" >> "$CSV"
+  echo "$i,$ts,$CPU_VENDOR,$ths,$lhs,${slp:-},${mems:-},${wakeirq:-},${lpi_sys:-},${lpi_cpu:-},$ran,${selflog},${SELFTEST_LAST_TAR:-}" >> "$CSV"
 
   sleep 2
 done
