@@ -202,7 +202,7 @@ KVER="$(uname -a)"
   echo "## Notes"
   echo "- \`total_hw_sleep\` / \`last_hw_sleep\` come from \`/sys/power/suspend_stats/*\`."
   echo "- Intel \`slp_s0_residency_usec\` is from \`/sys/kernel/debug/pmc_core\` (S0ix/SLP_S0 residency)."
-  echo "- AMD rows include \`mem_sleep\` mode、wakeup IRQ、以及 cpuidle 的 LPI 逗留時間。"
+  echo "- AMD rows include \`mem_sleep\` mode、wakeup IRQ、以及 cpuidle 的 LPI stay duration."
   echo
 } > "$MD"
 
