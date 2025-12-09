@@ -59,7 +59,7 @@ run_s0ix_selftest() {
   mkdir -p "$SELFTEST_DIR"
   pushd "$SELFTEST_DIR" >/dev/null
 
-  # Run selftest and capture stdout/stderr
+  # Run selftest and capture stdout/stderr (tool writes a date-stamped *-s0ix-output.log)
   /root/s0ix-selftest-tool.sh -s > "iter_${iter}_stdout.log" 2>&1 || true
 
   # Rename tool-generated date log to iteration-named file
@@ -68,34 +68,42 @@ run_s0ix_selftest() {
     mv "$genlog" "iter_${iter}_s0ix-output.log"
   fi
 
-  # --- bundle all files for this iteration in a subfolder, then tar ---
+  # Bundle all artifacts for this iteration
   local bundle="iter_${iter}_bundle"
   rm -rf "$bundle"
   mkdir -p "$bundle"
 
-  # Include all artifacts for this iteration
-  cp -a "iter_${iter}_stdout.log" "$bundle/" 2>/dev/null || true
+  # Include the tool logs
+  cp -a "iter_${iter}_stdout.log"      "$bundle/" 2>/dev/null || true
   cp -a "iter_${iter}_s0ix-output.log" "$bundle/" 2>/dev/null || true
 
-  # (Optional) also include system context for quick triage:
-  # uname/dmesg snapshot & mem_sleep
+  # Include ALL .dat (ACPI dump) files produced by the tool (commonly ~43 files)
+  # The tool invokes 'acpidump -b', which creates '*.dat' files in the current dir.  [2](https://github.com/canonical/checkbox/issues/2226)
+  shopt -s nullglob
+  dat_count=0
+  for f in *.dat; do
+    cp -a "$f" "$bundle/" 2>/dev/null || true
+    dat_count=$((dat_count+1))
+  done
+  shopt -u nullglob
+
+  # Optional: include a small system context snapshot for triage
   uname -a > "$bundle/uname.txt"
   (dmesg --time-format=iso 2>/dev/null || true) | tail -n 500 > "$bundle/dmesg-tail.txt"
   [[ -r /sys/power/mem_sleep ]] && cat /sys/power/mem_sleep > "$bundle/mem_sleep.txt"
 
-  # Create per-iteration tarball with user's requested command style
+  # Create per-iteration tarball exactly as requested (inside the bundle dir so '*' is scoped)
   pushd "$bundle" >/dev/null
   tar -czvf "s0ix-selftest-tool_${iter}.tar.gz" *
-  popd >/devnull
+  popd >/dev/null
 
   local tarpath="${SELFTEST_DIR}/${bundle}/s0ix-selftest-tool_${iter}.tar.gz"
-
   popd >/dev/null
 
   echo "Iter $iter: S0ixSelftest logs -> ${SELFTEST_DIR}/iter_${iter}_s0ix-output.log (stdout: ${SELFTEST_DIR}/iter_${iter}_stdout.log)" | tee -a "$LOG"
-  echo "Iter $iter: Selftest tarball  -> ${tarpath}" | tee -a "$LOG"
+  echo "Iter $iter: Included ${dat_count} .dat files; tarball -> ${tarpath}" | tee -a "$LOG"
 
-  # export path for CSV usage
+  # Export tar path for CSV/Markdown report rows
   SELFTEST_LAST_TAR="$tarpath"
 }
 
