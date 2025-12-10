@@ -37,73 +37,58 @@ fi
 
 # -------- Intel S0ixSelftestTool bootstrap & run --------
 ensure_s0ix_tool() {
+
+ensure_s0ix_tool() {
   local repo_dir="/opt/S0ixSelftestTool"
-  local home_dir="/root"
+
+  # deps (same as before)
   command -v git      >/dev/null || (apt-get update -y && apt-get install -y git)
   command -v acpidump >/dev/null || apt-get install -y acpidump
   command -v powertop >/dev/null || apt-get install -y powertop
   command -v gawk     >/dev/null || apt-get install -y gawk || true
   dpkg -s vim-common >/dev/null 2>&1 || apt-get install -y vim-common || true
 
+  # clone or update
   if [[ ! -d "$repo_dir" ]]; then
     git clone https://github.com/intel/S0ixSelftestTool.git "$repo_dir"
   else
     (cd "$repo_dir" && git pull --ff-only || true)
   fi
-  install -m 0755 "$repo_dir/s0ix-selftest-tool.sh" "$home_dir/s0ix-selftest-tool.sh"
-  install -m 0755 "$repo_dir/turbostat"             "$home_dir/turbostat"
+
+  # optional: add repo_dir to PATH so the bundled turbostat is found
+  export PATH="$repo_dir:$PATH"
 }
 
 run_s0ix_selftest() {
   local iter="$1"
-  mkdir -p "$SELFTEST_DIR"
-  pushd "$SELFTEST_DIR" >/dev/null
+  local repo_dir="/opt/S0ixSelftestTool"
 
-  # Run selftest and capture stdout/stderr (tool writes a date-stamped *-s0ix-output.log)
-  /root/s0ix-selftest-tool.sh -s > "iter_${iter}_stdout.log" 2>&1 || true
+  mkdir -p "$SELFTEST_DIR/iter_${iter}_bundle"
 
-  # Rename tool-generated date log to iteration-named file
-  local genlog="$(ls -1t *-s0ix-output.log 2>/dev/null | head -n1 || true)"
+  # Run tool with absolute path; set CWD to the bundle so all logs and *.dat land there
+  # (no directory change for the main script; only this command's working dir)
+  ( cd "$SELFTEST_DIR/iter_${iter}_bundle" && \
+    "$repo_dir/s0ix-selftest-tool.sh" -s > "iter_${iter}_stdout.log" 2>&1 ) || true
+
+  # Normalize tool-generated s0ix-output log name to iteration-labeled file
+  local genlog="$(ls -1t "$SELFTEST_DIR/iter_${iter}_bundle"/*-s0ix-output.log 2>/dev/null | head -n1 || true)"
   if [[ -n "$genlog" ]]; then
-    mv "$genlog" "iter_${iter}_s0ix-output.log"
+    mv "$genlog" "$SELFTEST_DIR/iter_${iter}_bundle/iter_${iter}_s0ix-output.log"
   fi
 
-  # Bundle all artifacts for this iteration
-  local bundle="iter_${iter}_bundle"
-  rm -rf "$bundle"
-  mkdir -p "$bundle"
+  # Context snapshot (optional)
+  uname -a > "$SELFTEST_DIR/iter_${iter}_bundle/uname.txt"
+  (dmesg --time-format=iso 2>/dev/null || true) | tail -n 500 > "$SELFTEST_DIR/iter_${iter}_bundle/dmesg-tail.txt"
+  [[ -r /sys/power/mem_sleep ]] && cat /sys/power/mem_sleep > "$SELFTEST_DIR/iter_${iter}_bundle/mem_sleep.txt"
 
-  # Include the tool logs
-  cp -a "iter_${iter}_stdout.log"      "$bundle/" 2>/dev/null || true
-  cp -a "iter_${iter}_s0ix-output.log" "$bundle/" 2>/dev/null || true
+  # Pack everything generated in this iteration
+  ( cd "$SELFTEST_DIR/iter_${iter}_bundle" && \
+    tar -czvf "s0ix-selftest-tool_${iter}.tar.gz" * )
 
-  # Include ALL .dat (ACPI dump) files produced by the tool (commonly ~43 files)
-  # The tool invokes 'acpidump -b', which creates '*.dat' files in the current dir.  [2](https://github.com/canonical/checkbox/issues/2226)
-  shopt -s nullglob
-  dat_count=0
-  for f in *.dat; do
-    cp -a "$f" "$bundle/" 2>/dev/null || true
-    dat_count=$((dat_count+1))
-  done
-  shopt -u nullglob
+  local tarpath="$SELFTEST_DIR/iter_${iter}_bundle/s0ix-selftest-tool_${iter}.tar.gz"
+  echo "Iter $iter: Selftest tarball -> ${tarpath}" | tee -a "$LOG"
 
-  # Optional: include a small system context snapshot for triage
-  uname -a > "$bundle/uname.txt"
-  (dmesg --time-format=iso 2>/dev/null || true) | tail -n 500 > "$bundle/dmesg-tail.txt"
-  [[ -r /sys/power/mem_sleep ]] && cat /sys/power/mem_sleep > "$bundle/mem_sleep.txt"
-
-  # Create per-iteration tarball exactly as requested (inside the bundle dir so '*' is scoped)
-  pushd "$bundle" >/dev/null
-  tar -czvf "s0ix-selftest-tool_${iter}.tar.gz" *
-  popd >/dev/null
-
-  local tarpath="${SELFTEST_DIR}/${bundle}/s0ix-selftest-tool_${iter}.tar.gz"
-  popd >/dev/null
-
-  echo "Iter $iter: S0ixSelftest logs -> ${SELFTEST_DIR}/iter_${iter}_s0ix-output.log (stdout: ${SELFTEST_DIR}/iter_${iter}_stdout.log)" | tee -a "$LOG"
-  echo "Iter $iter: Included ${dat_count} .dat files; tarball -> ${tarpath}" | tee -a "$LOG"
-
-  # Export tar path for CSV/Markdown report rows
+  # expose tar path to CSV/Markdown
   SELFTEST_LAST_TAR="$tarpath"
 }
 
