@@ -37,8 +37,6 @@ fi
 
 # -------- Intel S0ixSelftestTool bootstrap & run --------
 ensure_s0ix_tool() {
-
-ensure_s0ix_tool() {
   local repo_dir="/opt/S0ixSelftestTool"
 
   # deps (same as before)
