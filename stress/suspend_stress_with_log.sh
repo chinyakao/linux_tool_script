@@ -94,6 +94,10 @@ run_s0ix_selftest() {
 echo "Start: $(date -Iseconds)" > "$LOG"
 echo "CPU vendor: $CPU_VENDOR" | tee -a "$LOG"
 
+if [[ "$CPU_VENDOR" == "intel" ]]; then
+  ensure_s0ix_tool
+fi
+
 # CSV header (per-iteration)
 echo "iteration,timestamp,vendor,total_hw_sleep,last_hw_sleep,slp_s0_residency_usec,mem_sleep,pm_wakeup_irq,low_power_idle_system_us,low_power_idle_cpu_us,intel_selftest_ran,selftest_log,selftest_tar" > "$CSV"
 
@@ -122,7 +126,6 @@ for i in $(seq 1 "$ITER"); do
     if [[ -n "$slp" ]] && [[ -n "$PREV_SLP" ]] && [[ "$slp" =~ ^[0-9]+$ ]] && [[ "$PREV_SLP" =~ ^[0-9]+$ ]]; then
       if [[ "$slp" -le "$PREV_SLP" ]]; then
         echo "Iter $i: slp_s0_residency_usec did NOT increase; running S0ixSelftestTool..." | tee -a "$LOG"
-        ensure_s0ix_tool
         run_s0ix_selftest "$i"
         ran="true"
         selflog="${SELFTEST_DIR}/iter_${i}_s0ix-output.log"
