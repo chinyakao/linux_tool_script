@@ -33,7 +33,7 @@ echo "CPU vendor: $CPU_VENDOR" | tee -a "$LOG"
 
 for i in $(seq 1 "$ITER"); do
   echo "Iter $i: suspend for ${SLEEP_SEC}s..." | tee -a "$LOG"
-  rtcwake -m mem -s "$SLEEP_SEC" -v
+  rtcwake -v -m no -s "$SLEEP_SEC" && systemctl suspend
 
   sleep 2  # let counters settle
 
