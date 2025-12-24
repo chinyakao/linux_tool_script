@@ -5,8 +5,8 @@ set -euo pipefail
 
 LOG="${1:-hw_sleep.log}"
 ITER=30
-SLEEP_SEC=30
-DELAY_SEC=10
+SLEEP_SEC=60
+DELAY_SEC=60
 
 if [[ $EUID -ne 0 ]]; then
   echo "Please run as root: sudo $0 [log_file]" >&2
