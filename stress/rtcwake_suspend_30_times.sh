@@ -15,7 +15,8 @@ for i in $(seq 1 30); do
     VALUE=$(cat "$STAT")
     echo "Iteration $i: total_hw_sleep = $VALUE" | tee -a "$LOG"
     VALUE2=$(cat "$STAT2")
-    echo "Iteration $i: package_cstate_show = $VALUE2" | tee -a "$LOG"
+    echo "Iteration $i: package_cstate_show: " | tee -a "$LOG"
+    echo "$VALUE2" | tee -a "$LOG"
 done
 
 echo "End: $(date)" >> "$LOG"
