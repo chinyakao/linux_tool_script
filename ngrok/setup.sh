@@ -28,7 +28,7 @@ echo "Installing ssh and tmux..."
 sudo apt install ssh tmux -y
 
 echo "Installing ngrok..."
-sudo snap install ngrok -y
+sudo snap install ngrok
 
 echo "Adding ngrok auth token..."
 ngrok config add-authtoken "$token"
