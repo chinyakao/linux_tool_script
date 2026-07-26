@@ -7,37 +7,59 @@ exec 2> >(while IFS= read -r line; do
 done)
 
 usage() {
-    echo "Usage: $0 [-r remote_addr] <token>" >&2
+    echo "Usage: $0 [-r remote_addr] [-l launchpad_id] <token>" >&2
     echo "Example: $0 your_ngrok_token" >&2
     echo "Example: $0 -r 1.tcp.ngrok.io:23456 your_ngrok_token" >&2
+    echo "Example: $0 -l hugh712 your_ngrok_token" >&2
+    echo "Example: $0 -l hugh712 -r 1.tcp.ngrok.io:23456 your_ngrok_token" >&2
 }
 
 remote_addr=""
+launchpad_id=""
+token=""
 
-# Parse optional arguments
-while getopts ":r:h" opt; do
-    case "$opt" in
-        r)
-            remote_addr="$OPTARG"
+# Parse arguments
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -r)
+            if [ -z "${2:-}" ]; then
+                echo "Option -r requires a remote address." >&2
+                usage
+                exit 1
+            fi
+            remote_addr="$2"
+            shift 2
             ;;
-        h)
+        -l)
+            if [ -z "${2:-}" ]; then
+                echo "Option -l requires a Launchpad ID." >&2
+                usage
+                exit 1
+            fi
+            launchpad_id="$2"
+            shift 2
+            ;;
+        -h|--help)
             usage
             exit 0
             ;;
-        :)
-            echo "Option -$OPTARG requires an argument." >&2
+        -*)
+            echo "Unknown option: $1" >&2
             usage
             exit 1
             ;;
-        \?)
-            echo "Invalid option: -$OPTARG" >&2
-            usage
-            exit 1
+        *)
+            if [ -z "$token" ]; then
+                token="$1"
+                shift
+            else
+                echo "Unexpected argument: $1" >&2
+                usage
+                exit 1
+            fi
             ;;
     esac
 done
-
-shift $((OPTIND - 1))
 
 # Check if running as root
 if [ "$(id -u)" -eq 0 ]; then
@@ -46,22 +68,56 @@ if [ "$(id -u)" -eq 0 ]; then
 fi
 
 # Check token argument
-if [ -z "${1:-}" ]; then
+if [ -z "$token" ]; then
     echo "Missing required argument: token" >&2
     usage
     exit 1
 fi
 
-token="$1"
-
 echo "Updating apt package list..."
 sudo apt update
 
-echo "Installing ssh and tmux..."
-sudo apt install ssh tmux -y
+echo "Installing ssh, tmux and curl..."
+sudo apt install ssh tmux curl -y
 
 echo "Installing ngrok..."
 sudo snap install ngrok
+
+echo "Ensuring SSH service is enabled and running..."
+sudo systemctl enable --now ssh
+
+if [ -n "$launchpad_id" ]; then
+    echo "Importing SSH public keys from Launchpad account: $launchpad_id"
+
+    mkdir -p "$HOME/.ssh"
+    chmod 700 "$HOME/.ssh"
+
+    launchpad_keys_url="https://launchpad.net/~${launchpad_id}/+sshkeys"
+
+    keys="$(curl -fsSL "$launchpad_keys_url")"
+
+    if [ -z "$keys" ]; then
+        echo "No SSH public keys found from Launchpad account: $launchpad_id" >&2
+        exit 1
+    fi
+
+    touch "$HOME/.ssh/authorized_keys"
+    chmod 600 "$HOME/.ssh/authorized_keys"
+
+    # Remove old block if this script was run before
+    sed -i '/# BEGIN NGROK_REMOTE_SUPPORT_LAUNCHPAD_KEYS/,/# END NGROK_REMOTE_SUPPORT_LAUNCHPAD_KEYS/d' "$HOME/.ssh/authorized_keys"
+
+    {
+        echo "# BEGIN NGROK_REMOTE_SUPPORT_LAUNCHPAD_KEYS"
+        echo "$keys"
+        echo "# END NGROK_REMOTE_SUPPORT_LAUNCHPAD_KEYS"
+    } >> "$HOME/.ssh/authorized_keys"
+
+    chmod 600 "$HOME/.ssh/authorized_keys"
+
+    echo "Launchpad SSH public keys imported into:"
+    echo "$HOME/.ssh/authorized_keys"
+fi
 
 echo "Adding ngrok auth token..."
 ngrok config add-authtoken "$token"
