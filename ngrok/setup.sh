@@ -17,6 +17,7 @@ usage() {
 ngrok_url=""
 launchpad_id=""
 token=""
+support_user="hugh"
 
 # Parse arguments, order-independent
 while [ "$#" -gt 0 ]; do
@@ -77,8 +78,8 @@ fi
 echo "Updating apt package list..."
 sudo apt update
 
-echo "Installing ssh, tmux and curl..."
-sudo apt install ssh tmux curl -y
+echo "Installing ssh, tmux, curl and openssl..."
+sudo apt install ssh tmux curl openssl -y
 
 # Install ngrok only if not installed
 if command -v ngrok >/dev/null 2>&1; then
@@ -88,14 +89,30 @@ else
     sudo snap install ngrok
 fi
 
+echo "Creating temporary support user: $support_user"
+
+if id "$support_user" >/dev/null 2>&1; then
+    echo "User '$support_user' already exists. Skipping user creation."
+else
+    support_pass="$(openssl rand -base64 18)"
+
+    sudo useradd -m -s /bin/bash "$support_user"
+    echo "$support_user:$support_pass" | sudo chpasswd
+
+    echo
+    echo "Temporary support user created:"
+    echo "Username: $support_user"
+    echo "Password: $support_pass"
+    echo
+fi
+
+echo "Adding '$support_user' to sudo group..."
+sudo usermod -aG sudo "$support_user"
+
 if [ -n "$launchpad_id" ]; then
     echo "Importing SSH public keys from Launchpad account: $launchpad_id"
 
-    mkdir -p "$HOME/.ssh"
-    chmod 700 "$HOME/.ssh"
-
     launchpad_keys_url="https://launchpad.net/~${launchpad_id}/+sshkeys"
-
     keys="$(curl -fsSL "$launchpad_keys_url")"
 
     if [ -z "$keys" ]; then
@@ -103,27 +120,36 @@ if [ -n "$launchpad_id" ]; then
         exit 1
     fi
 
-    touch "$HOME/.ssh/authorized_keys"
-    chmod 600 "$HOME/.ssh/authorized_keys"
+    sudo mkdir -p "/home/$support_user/.ssh"
+    sudo chmod 700 "/home/$support_user/.ssh"
+    sudo touch "/home/$support_user/.ssh/authorized_keys"
+    sudo chmod 600 "/home/$support_user/.ssh/authorized_keys"
 
     # Remove old block if this script was run before
-    sed -i '/# BEGIN NGROK_REMOTE_SUPPORT_LAUNCHPAD_KEYS/,/# END NGROK_REMOTE_SUPPORT_LAUNCHPAD_KEYS/d' "$HOME/.ssh/authorized_keys"
+    sudo sed -i '/# BEGIN NGROK_REMOTE_SUPPORT_LAUNCHPAD_KEYS/,/# END NGROK_REMOTE_SUPPORT_LAUNCHPAD_KEYS/d' \
+        "/home/$support_user/.ssh/authorized_keys"
 
     {
         echo "# BEGIN NGROK_REMOTE_SUPPORT_LAUNCHPAD_KEYS"
         echo "$keys"
         echo "# END NGROK_REMOTE_SUPPORT_LAUNCHPAD_KEYS"
-    } >> "$HOME/.ssh/authorized_keys"
+    } | sudo tee -a "/home/$support_user/.ssh/authorized_keys" >/dev/null
 
-    chmod 600 "$HOME/.ssh/authorized_keys"
+    sudo chown -R "$support_user:$support_user" "/home/$support_user/.ssh"
+    sudo chmod 700 "/home/$support_user/.ssh"
+    sudo chmod 600 "/home/$support_user/.ssh/authorized_keys"
 
     echo "Launchpad SSH public keys imported into:"
-    echo "$HOME/.ssh/authorized_keys"
+    echo "/home/$support_user/.ssh/authorized_keys"
 fi
 
 echo "Adding ngrok auth token..."
 ngrok config add-authtoken "$token"
 
+echo
+echo "Remote SSH login user:"
+echo "Username: $support_user"
+echo
 echo "Starting ngrok TCP tunnel on port 22..."
 
 if [ -n "$ngrok_url" ]; then
