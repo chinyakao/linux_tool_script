@@ -7,27 +7,27 @@ exec 2> >(while IFS= read -r line; do
 done)
 
 usage() {
-    echo "Usage: $0 [-r remote_addr] [-l launchpad_id] <token>" >&2
+    echo "Usage: $0 [-r ngrok_url] [-l launchpad_id] <token>" >&2
     echo "Example: $0 your_ngrok_token" >&2
-    echo "Example: $0 -r 1.tcp.ngrok.io:23456 your_ngrok_token" >&2
+    echo "Example: $0 -r tcp://1.tcp.ngrok.io:23456 your_ngrok_token" >&2
     echo "Example: $0 -l hugh712 your_ngrok_token" >&2
-    echo "Example: $0 -l hugh712 -r 1.tcp.ngrok.io:23456 your_ngrok_token" >&2
+    echo "Example: $0 -l hugh712 -r tcp://1.tcp.ngrok.io:23456 your_ngrok_token" >&2
 }
 
-remote_addr=""
+ngrok_url=""
 launchpad_id=""
 token=""
 
-# Parse arguments
+# Parse arguments, order-independent
 while [ "$#" -gt 0 ]; do
     case "$1" in
         -r)
             if [ -z "${2:-}" ]; then
-                echo "Option -r requires a remote address." >&2
+                echo "Option -r requires an ngrok URL." >&2
                 usage
                 exit 1
             fi
-            remote_addr="$2"
+            ngrok_url="$2"
             shift 2
             ;;
         -l)
@@ -80,11 +80,13 @@ sudo apt update
 echo "Installing ssh, tmux and curl..."
 sudo apt install ssh tmux curl -y
 
-echo "Installing ngrok..."
-sudo snap install ngrok
-
-echo "Ensuring SSH service is enabled and running..."
-sudo systemctl enable --now ssh
+# Install ngrok only if not installed
+if command -v ngrok >/dev/null 2>&1; then
+    echo "ngrok is already installed. Skipping installation."
+else
+    echo "Installing ngrok..."
+    sudo snap install ngrok
+fi
 
 if [ -n "$launchpad_id" ]; then
     echo "Importing SSH public keys from Launchpad account: $launchpad_id"
@@ -124,9 +126,9 @@ ngrok config add-authtoken "$token"
 
 echo "Starting ngrok TCP tunnel on port 22..."
 
-if [ -n "$remote_addr" ]; then
-    echo "Using remote address: $remote_addr"
-    ngrok tcp --remote-addr="$remote_addr" 22
+if [ -n "$ngrok_url" ]; then
+    echo "Using ngrok URL: $ngrok_url"
+    ngrok tcp --url="$ngrok_url" 22
 else
     ngrok tcp 22
 fi
